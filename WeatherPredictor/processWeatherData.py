@@ -21,24 +21,54 @@ for file in os.listdir(weatherDir):
                     print('Unzipping File: ', member)
                     cZip.extract(member, weatherDir)
 
-# Collate all hourly data
-hourlyDataFileName = 'hourlyData.hdf'
-if os.path.isfile(hourlyDataFileName):
-    os.remove(hourlyDataFileName)
+# Hourly Weather Data
+if False:
+    # Collate all hourly data
+    hourlyDataFileName = 'hourlyData.hdf'
+    if os.path.isfile(hourlyDataFileName):
+        os.remove(hourlyDataFileName)
 
      
-for file in os.listdir(weatherDir):
-    if file.endswith("hourly.txt"):
-        print('Processing file: ', file)
-        df = pd.read_csv(os.path.join(weatherDir,file),
-                        index_col=['WBAN', 'Date', 'Time'],
-                         na_values=('M', '  ', ' ', 'VR', 'VR ',  "  T", "   ", 'null'),
-                         usecols=['WBAN', 'Date', 'Time', 'DryBulbFarenheit', 'DewPointFarenheit', 'RelativeHumidity',
-                                  'WindSpeed', 'WindDirection', 'StationPressure', 'HourlyPrecip'],
-                         parse_dates=True
-                         )
-        df = df.apply(pd.to_numeric, errors='coerce')
-        if not os.path.isfile(hourlyDataFileName):
-            df.to_hdf(hourlyDataFileName, 'hourlyData', format='t', mode='w', complevel=1, complib='zlib')
-        else:
-            df.to_hdf(hourlyDataFileName, 'hourlyData', format='t', mode='a', append=True, complevel=1, complib='zlib')
+    for file in os.listdir(weatherDir):
+        if file.endswith("hourly.txt"):
+            print('Processing file: ', file)
+            df = pd.read_csv(os.path.join(weatherDir,file),
+                            index_col=['WBAN', 'Date', 'Time'],
+                             na_values=('M', '  ', ' ', 'VR', 'VR ',  "  T", "   ", 'null'),
+                             usecols=['WBAN', 'Date', 'Time', 'DryBulbFarenheit', 'DewPointFarenheit', 'RelativeHumidity',
+                                      'WindSpeed', 'WindDirection', 'StationPressure', 'HourlyPrecip'],
+                             parse_dates=True
+                             )
+            df = df.apply(pd.to_numeric, errors='coerce')
+            if not os.path.isfile(hourlyDataFileName):
+                df.to_hdf(hourlyDataFileName, 'hourlyData', format='t', mode='w', complevel=1, complib='zlib')
+            else:
+                df.to_hdf(hourlyDataFileName, 'hourlyData', format='t', mode='a', append=True, complevel=1, complib='zlib')
+
+# Station Data
+if True:
+    print('Getting Station Info')
+    cols = None
+    # Collate all hourly data
+    stationDataFileName = 'stationData.hdf'
+    if os.path.isfile(stationDataFileName):
+        os.remove(stationDataFileName)
+     
+    for file in os.listdir(weatherDir):
+        if file.endswith('station.txt'):
+            print('Processing file: ', file)
+            if cols is None:
+                df = pd.read_csv(os.path.join(weatherDir,file),
+                                 sep='|',
+                                 parse_dates=True)                
+            else:
+                pd.read_csv(os.path.join(weatherDir,file),
+                                 sep='|',
+                                 parse_dates=True,
+                                 usecols=cols)
+            if not os.path.isfile(stationDataFileName):
+                df.to_hdf(stationDataFileName, 'stationInfo', format='t', mode='w', complevel=1, complib='zlib')
+                cols = list(df)
+            else:
+                df.to_hdf(stationDataFileName, 'stationInfo', format='t', mode= 'a', append=True, complevel=1, complib='zlib')
+
