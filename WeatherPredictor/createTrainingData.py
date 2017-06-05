@@ -28,7 +28,11 @@ def switchIndex(df):
         index+=1
 
     df.index=dateIndex
-    df['WBAN']=wban
+    columns = df.columns.values
+    for i, column in enumerate(columns):
+        columns[i]=columns[i] + '_' + str(wban[0])
+
+    df.columns = columns
 
     return df[~df.index.duplicated(keep='first')]
 

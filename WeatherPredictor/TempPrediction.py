@@ -97,12 +97,15 @@ if __name__ == "__main__":
     max_temp = 120
     num_of_classes = len(range(min_temp,max_temp)) # model temperatures for -30 F to 120 F
     num_of_rnn_layers = 4
-    stations = [3011, 3012, 3013]
     learning_rate = 1
-    input_data = pd.read_hdf('trainingData.hdf')
+    
 
     # Get Training Data
-   
+    input_data = pd.read_hdf('trainingData.hdf')
+    b=input_data.columns.to_series().str.startswith('HourlyPrecip')
+    input_data.loc[:,b]=input_data.loc[:,b].fillna(0)
+    input_data.fillna(input_data.mean(),inplace=True)
+    stations = input_data.iloc[0].WBAN.values
     
     # Build Training Model
     with tf.name_scope('Train'):
