@@ -17,7 +17,7 @@ class tempModel(object):
     Class used to build model utilizing LSTM and multilayer dense networks
     Input consists of [temp humidity dewpoint pressure] * number of stations
     """
-    def __init__(self, num_of_classes, input_data, target_data,
+    def __init__(self, num_of_classes,  
                        truncated_backprop = 7*24,  isTraining = True, 
                        batch_size = 1000, stations = [3001, 3002, 3003], state_size = 10,
                        dropout_keep_prob = .9, num_rnn_layers = 10):
@@ -30,8 +30,6 @@ class tempModel(object):
         self.num_rnn_layers = num_rnn_layers
         self.num_of_classes = num_of_classes
         self.stations = stations
-        self.input_data = input_data
-        self.target_data = target_data
 
         if self.isTraining:
             self.batch_size = 1
@@ -78,39 +76,79 @@ class tempModel(object):
                 costs = tf.nn.sparse_softmax_cross_entropy_with_logits(temp_pred_logits,target_batch_cur)
                 self.cost_mean = tf.reduce_mean(costs)
 
-    def generateFeeder():
-        ## Generates an inputs and target feed for tensorflow 
-        
-    
-
-
-        return feed, feed_length
 
 
 if __name__ == "__main__":
     LOGDIR = os.getcwd() + '/logs'
     print("Running")
 
-    # Parameters
+    """
+    Parameter Section
+    """
+    station_target = '53885'
     num_of_train_steps = int(1e6)
     min_temp = -30
     max_temp = 120
     num_of_classes = len(range(min_temp,max_temp)) # model temperatures for -30 F to 120 F
     num_of_rnn_layers = 4
     learning_rate = 1
-    
+    truncated_backprop = 24*7
 
-    # Get Training Data
-    input_data = pd.read_hdf('trainingData.hdf')
-    b=input_data.columns.to_series().str.startswith('HourlyPrecip')
-    input_data.loc[:,b]=input_data.loc[:,b].fillna(0)
-    input_data.fillna(input_data.mean(),inplace=True)
-    stations = input_data.iloc[0].WBAN.values
+    """
+    END Parameter Section
+    """
+    
+    # Get Training Data Set
+    train_data = pd.read_hdf('trainingData.hdf') # load dataframe
+
+    b=train_data.columns.to_series().str.startswith('HourlyPrecip') # nan seems to mean no rain, so replace with 0
+    train_data.loc[:,b]=train_data.loc[:,b].fillna(0)
+
+    train_data.fillna(train_data.mean(),inplace=True) # replace all other missing data with mean of feature
+    train_data.fillna(0,inplace=True) # remove instances of weather statiosn with all nans
+    stations = np.unique(np.array(train_data.columns.to_series().str.split('_').tolist())[:,1]) # get station WBAN out of column name (last part is digits)
+    measurement_types = np.unique(np.array(train_data.columns.to_series().str.split('_').tolist())[:,0]) # get measurement out of column name (first part is measurement desc from NOAA
+
+    # Get Target Data
+    target_data = train_data.loc[:,'DryBulbFarenheit_' + station_target].values
+    target_data = target_data - min_temp
+    target_data = round(target_data)
+
+    # Get Normalized Input Data
+    for type in measurement_types:
+        print('Normalizing Measurement: ', type)
+        b = train_data.columns.to_series().str.startswith(type)
+        maxVal = train_data.loc[:,b].max().max()
+        minVal = train_data.loc[:,b].min().min()
+        input_data = (train_data.values - minVal) / (maxVal - minVal)
+
+    def getFeeder(truncated_backprop, batch_size):
+        total_size = batch_size*truncated_backprop
+        randIndexs = np.random.randint(24,input_data.shape[0]-25,total_size)
+        
+        if batch_size is 0:
+            inputs = np.zeros((batch_size,truncated_backprop,input_data.shape[2]),dtype=tf.float32)
+            targets = np.zeros((batch_size,truncated_backprop,1),dtype=tf.float32)
+            for batch in np.arange(batch_size):
+                selection = np.arange(randIndexs[batch],randIndexs[batch]+truncated_backprop)
+                inputs[batch,:,:] = input_data[selection]
+                targets[batch,:,1] = target_data[selection],
+        else: 
+            inputs = input_data[-truncated_backprop:]
+            targets = input_data[-truncated_backprop:]
+
+        feed = {
+                    'input_batch_PH': inputs,
+                    'target_batch_PH': targets
+                }
+
+        return feed
     
     # Build Training Model
     with tf.name_scope('Train'):
         with tf.variable_scope('Model', reuse=False):
-            modelTrain = tempModel(num_of_classes=num_of_classes, isTraining=True, num_rnn_layers=num_rnn_layers, stations=stations)
+            modelTrain = tempModel(num_of_classes=num_of_classes, isTraining=True, truncated_backprop=truncated_backprop,
+                                   num_rnn_layers=num_rnn_layers, stations=stations)
             global_step = tf.Variable(0, name='global_step', trainable=False)
             train_step = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss=modelTrain.cost_mean, global_step=global_step)
             tf.summary.scalar('cost_mean',modelTrain.cost_mean)
@@ -118,7 +156,8 @@ if __name__ == "__main__":
     # Build Prediction Model
     with tf.name_scope('Pred'):
         with tf.variable_scope('Model', reuse=True):
-            modelPred = tempModel(num_of_classes=num_of_classes, isTraining=False, num_rnn_layers=num_rnn_layers, stations=stations)
+            modelPred = tempModel(num_of_classes=num_of_classes, isTraining=False, truncated_backprop=truncated_backprop,
+                                  num_rnn_layers=num_rnn_layers, stations=stations)
             tf.summary.histogram('temp_pred_prob', modelPred.temp_pred_prob)
 
     # Merge all summaries
@@ -136,7 +175,7 @@ if __name__ == "__main__":
             if sv.should_stop():
                 break
 
-            feed = modelTrain.getFeeder()    
+            feed = getFeeder(truncated_backprop, batch_size)   
 
             _summary, _train_step, _predictions = sess.run(
                 [summary, train_step, modelTrain.temp_pred_prob],
@@ -147,6 +186,6 @@ if __name__ == "__main__":
                 print("Step", step, 'Cost', modelTrain.cost_mean, 'of', num_of_train_steps)
 
         # Use trained model for predictions
-        feed, feed_length = modelPred.getFeeder()
+        feed = getFeeder(truncated_backprop=24*30, batch_size=1)
       
         _predictions = sess.run([modelPred.temp_pred_prob], feed_dict=feed)
