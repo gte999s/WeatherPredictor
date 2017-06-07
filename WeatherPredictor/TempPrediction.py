@@ -17,14 +17,14 @@ class tempModel(object):
     Class used to build model utilizing LSTM and multilayer dense networks
     Input consists of [temp humidity dewpoint pressure] * number of stations
     """
-    def __init__(self, num_of_classes,  
+    def __init__(self, num_of_classes, input_length,
                        truncated_backprop_num = 7*24,  isTraining = True, 
                        batch_size = 1000, stations = [3001, 3002, 3003], state_size = 10,
                        dropout_keep_prob = .9, num_rnn_layers = 10):
         self.isTraining = isTraining
         self.truncated_backprop_num = truncated_backprop_num
         self.batch_size = batch_size
-        self.inputLength = 4 * len(stations)
+        self.inputLength = input_length
         self.state_size = state_size
         self.dropout_keep_prob = dropout_keep_prob
         self.num_rnn_layers = num_rnn_layers
@@ -52,9 +52,11 @@ class tempModel(object):
                 target_batch_cur = target_batch_PH[:,-24:,:] # Take only the last 24 hours of results for cost calc
                 target_batch_cur = tf.one_hot(tf.to_int32(target_batch_cur), depth=self.num_of_classes)
             else:
-                target_batch_cur = tf.one_hot(target_batch_PH, depth=self.num_of_classes) # Take everything when running predictions
-            
-            # LSTM / Dynamic RNN
+                target_batch_cur = tf.one_hot(tf.to_int32(target_batch_PH), depth=self.num_of_classes) # Take everything when running predictions
+
+        self.inputs = input_batch_PH
+        self.targets = target_batch_PH
+        # LSTM / Dynamic RNN
         with tf.name_scope('LSTM'):
             doReuse = not self.isTraining
             cells=[]
@@ -66,6 +68,7 @@ class tempModel(object):
             else:
                 for _ in range(self.num_rnn_layers):
                     cell = tf.contrib.rnn.BasicLSTMCell(self.state_size, state_is_tuple=True, reuse=doReuse)
+                    cells.append(cell)
                 
             cell = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
             outputs_batch, _ = tf.nn.dynamic_rnn(cell, input_batch_PH, dtype=tf.float32)
@@ -74,6 +77,7 @@ class tempModel(object):
         with tf.name_scope('LinearLayer'):
             W = tf.get_variable('W', shape=(self.state_size, self.num_of_classes),dtype=tf.float32)
             b = tf.get_variable('b',shape=(1,self.num_of_classes))
+            tf.summary.histogram('W',W)
             temp_pred_logits = tf.matmul(outputs, W) + b
             self.temp_pred_prob = tf.nn.softmax(temp_pred_logits)
 
@@ -93,13 +97,14 @@ if __name__ == "__main__":
     """
     Parameter Section
     """
-    station_target = '53885'
     num_of_train_steps = int(1e6)
     min_temp = -30
     max_temp = 120
     num_of_classes = len(range(min_temp,max_temp)) # model temperatures for -30 F to 120 F
     num_rnn_layers = 4
     learning_rate = 1
+    batch_size=100
+    state_size=50
     truncated_backprop_num = 24*7
 
     """
@@ -107,7 +112,19 @@ if __name__ == "__main__":
     """
     
     # Get Training Data Set
+    trainingStations = pd.read_csv('dataStationCentroids.csv')
+    station_target = str(trainingStations['WBAN'][0]) # NC
+    all_stations = trainingStations['WBAN'].values
+
     train_data = pd.read_hdf('trainingData.hdf') # load dataframe
+    b = None
+    for station in all_stations:
+        if b is None:
+            b = train_data.columns.to_series().str.endswith('_' + str(station))
+        else:
+            b = b | train_data.columns.to_series().str.endswith('_' + str(station))
+
+    train_data = train_data.loc[:,b]
 
     b=train_data.columns.to_series().str.startswith('HourlyPrecip') # nan seems to mean no rain, so replace with 0
     train_data.loc[:,b]=train_data.loc[:,b].fillna(0)
@@ -121,6 +138,7 @@ if __name__ == "__main__":
     target_data = train_data.loc[:,'DryBulbFarenheit_' + station_target].values
     target_data = target_data - min_temp
     target_data = np.round(target_data)
+    target_data = np.expand_dims(target_data, axis=2)
 
     # Get Normalized Input Data
     for type in measurement_types:
@@ -130,24 +148,27 @@ if __name__ == "__main__":
         minVal = train_data.loc[:,b].min().min()
         input_data = (train_data.values - minVal) / (maxVal - minVal)
 
-    def getFeeder(truncated_backprop_num, batch_size):
+    def getFeeder(model):
+        truncated_backprop_num = model.truncated_backprop_num
+        batch_size = model.batch_size
+
         total_size = batch_size*truncated_backprop_num
-        randIndexs = np.random.randint(0,input_data.shape[0]-total_size-48,total_size)
+        randIndexs = np.random.randint(0,input_data.shape[0]-truncated_backprop_num-48,total_size)
         
-        if batch_size is 0:
-            inputs = np.zeros((batch_size,truncated_backprop_num,input_data.shape[2]),dtype=tf.float32)
-            targets = np.zeros((batch_size,truncated_backprop_num,1),dtype=tf.float32)
+        if batch_size > 1:
+            inputs = np.zeros((batch_size,truncated_backprop_num,input_data.shape[1]),dtype=np.float32)
+            targets = np.zeros((batch_size,truncated_backprop_num,1),dtype=np.float32)
             for batch in np.arange(batch_size):
                 selection = np.arange(randIndexs[batch],randIndexs[batch]+truncated_backprop_num)
                 inputs[batch,:,:] = input_data[selection]
-                targets[batch,:,1] = target_data[selection+24],
+                targets[batch,:,:] = np.expand_dims(target_data[selection+24],axis=0)
         else: 
             inputs = input_data[-truncated_backprop_num:]
             targets = input_data[-truncated_backprop_num:]
 
         feed = {
-                    'input_batch_PH': inputs,
-                    'target_batch_PH': targets
+                    model.inputs: inputs,
+                    model.targets: targets
                 }
 
         return feed
@@ -155,24 +176,26 @@ if __name__ == "__main__":
     # Build Training Model
     with tf.name_scope('Train'):
         with tf.variable_scope('Model', reuse=False):
-            modelTrain = tempModel(num_of_classes=num_of_classes, isTraining=True, truncated_backprop_num=truncated_backprop_num,
+            modelTrain = tempModel(num_of_classes, input_data.shape[1], isTraining=True, state_size=state_size, batch_size=batch_size, truncated_backprop_num=truncated_backprop_num,
                                    num_rnn_layers=num_rnn_layers, stations=stations)
             global_step = tf.Variable(0, name='global_step', trainable=False)
             train_step = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss=modelTrain.cost_mean, global_step=global_step)
             tf.summary.scalar('cost_mean',modelTrain.cost_mean)
+            tf.summary.histogram('prediction_prob',modelTrain.temp_pred_prob)
+            
 
     # Build Prediction Model
     with tf.name_scope('Pred'):
         with tf.variable_scope('Model', reuse=True):
-            modelPred = tempModel(num_of_classes=num_of_classes, isTraining=False, truncated_backprop_num=truncated_backprop_num,
+            modelPred = tempModel(num_of_classes, input_data.shape[1], isTraining=False, truncated_backprop_num=truncated_backprop_num,
                                   num_rnn_layers=num_rnn_layers, stations=stations)
-            tf.summary.histogram('temp_pred_prob', modelPred.temp_pred_prob)
+
 
     # Merge all summaries
-    summary = tf.summary.merge_all
+    summary = tf.summary.merge_all()
 
     sv = tf.train.Supervisor(logdir=LOGDIR,
-                             save_model_secs=10,
+                             save_model_secs=60,
                              summary_op=None,
                              global_step=global_step)
 
@@ -183,17 +206,17 @@ if __name__ == "__main__":
             if sv.should_stop():
                 break
 
-            feed = getFeeder(truncated_backprop_num, batch_size)   
+            feed = getFeeder(modelTrain)   
 
-            _summary, _train_step, _predictions = sess.run(
-                [summary, train_step, modelTrain.temp_pred_prob],
+            _summary, _train_step, _predictions, _cost_mean = sess.run(
+                [summary, train_step, modelTrain.temp_pred_prob, modelTrain.cost_mean],
                 feed_dict=feed)            
 
             if step % 100 == 0:
                 sv.summary_computed(sess, _summary)
-                print("Step", step, 'Cost', modelTrain.cost_mean, 'of', num_of_train_steps)
+                print("Step", step, 'Cost', _cost_mean, 'of', num_of_train_steps)
 
         # Use trained model for predictions
-        feed = getFeeder(truncated_backprop_num=24*30, batch_size=1)
+        #feed = getFeeder(modelPred)
       
-        _predictions = sess.run([modelPred.temp_pred_prob], feed_dict=feed)
+        #_predictions = sess.run([modelPred.temp_pred_prob], feed_dict=feed)
