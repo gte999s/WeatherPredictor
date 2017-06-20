@@ -261,3 +261,4 @@ __pycache__/
 *.pyc
 /WeatherPredictor/weatherData
 /WeatherPredictor/hourlyData.hdf
+/WeatherPredictor/dataWeather
