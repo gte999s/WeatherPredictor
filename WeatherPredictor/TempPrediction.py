@@ -91,20 +91,22 @@ class tempModel(object):
 
 
 if __name__ == "__main__":
+    os.system('cls')
     LOGDIR = os.getcwd() + '/logs'
+    tf.logging.set_verbosity(tf.logging.INFO)
     print("Running")
 
     """
     Parameter Section
     """
-    num_of_train_steps = int(1e6)
+    num_of_train_steps = int(1)
     min_temp = -30
     max_temp = 120
     num_of_classes = len(range(min_temp,max_temp)) # model temperatures for -30 F to 120 F
-    num_rnn_layers = 4
+    num_rnn_layers = 2
     learning_rate = 1
-    batch_size=100
-    state_size=50
+    batch_size=1000
+    state_size=100
     truncated_backprop_num = 24*7
 
     """
@@ -171,7 +173,7 @@ if __name__ == "__main__":
                     model.targets: targets
                 }
 
-        return feed
+        return feed, inputs, targets
     
     # Build Training Model
     with tf.name_scope('Train'):
@@ -179,15 +181,15 @@ if __name__ == "__main__":
             modelTrain = tempModel(num_of_classes, input_data.shape[1], isTraining=True, state_size=state_size, batch_size=batch_size, truncated_backprop_num=truncated_backprop_num,
                                    num_rnn_layers=num_rnn_layers, stations=stations)
             global_step = tf.Variable(0, name='global_step', trainable=False)
-            train_step = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss=modelTrain.cost_mean, global_step=global_step)
+            train_step = tf.train.AdadeltaOptimizer(learning_rate=learning_rate).minimize(loss=modelTrain.cost_mean, global_step=global_step)
             tf.summary.scalar('cost_mean',modelTrain.cost_mean)
-            tf.summary.histogram('prediction_prob',modelTrain.temp_pred_prob)
+            tf.summary.histogram('prediction_prob',modelTrain.temp_pred_prob[-1,:])
             
 
     # Build Prediction Model
     with tf.name_scope('Pred'):
         with tf.variable_scope('Model', reuse=True):
-            modelPred = tempModel(num_of_classes, input_data.shape[1], isTraining=False, truncated_backprop_num=truncated_backprop_num,
+            modelPred = tempModel(num_of_classes, input_data.shape[1], isTraining=False, state_size=state_size, batch_size=1, truncated_backprop_num=truncated_backprop_num,
                                   num_rnn_layers=num_rnn_layers, stations=stations)
 
 
@@ -206,13 +208,13 @@ if __name__ == "__main__":
             if sv.should_stop():
                 break
 
-            feed = getFeeder(modelTrain)   
+            feed, inputs, targets = getFeeder(modelTrain)   
 
             _summary, _train_step, _predictions, _cost_mean = sess.run(
                 [summary, train_step, modelTrain.temp_pred_prob, modelTrain.cost_mean],
                 feed_dict=feed)            
 
-            if step % 100 == 0:
+            if step % 10 == 0:
                 sv.summary_computed(sess, _summary)
                 print("Step", step, 'Cost', _cost_mean, 'of', num_of_train_steps)
 
