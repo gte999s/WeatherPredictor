@@ -5,14 +5,15 @@
     <ProjectGuid>bcc1bbed-50eb-417b-b8cd-124613631e2b</ProjectGuid>
     <ProjectTypeGuids>{6c0efafa-1a04-41b6-a6d7-511b90951b5b};{888888a0-9f3d-457c-b088-3a5042f75d52}</ProjectTypeGuids>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>runWeatherPrediction.py</StartupFile>
+    <StartupFile>downloadHistoricalWeatherData.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>WeatherPredictor</Name>
     <RootNamespace>WeatherPredictor</RootNamespace>
-    <InterpreterId>Global|PythonCore|3.5</InterpreterId>
+    <InterpreterId>Global|PythonCore|3.6</InterpreterId>
+    <IsWindowsApplication>False</IsWindowsApplication>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -22,9 +23,6 @@
     <DebugSymbols>true</DebugSymbols>
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
-  <ItemGroup>
-    <InterpreterReference Include="Global|PythonCore|3.5" />
-  </ItemGroup>
   <ItemGroup>
     <Compile Include="downloadHistoricalWeatherData.py" />
     <Compile Include="analyzeWeatherData.py">
@@ -38,6 +36,14 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="processWeatherData.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <InterpreterReference Include="Global|ContinuumAnalytics|Anaconda36-64" />
+    <InterpreterReference Include="Global|PythonCore|3.5" />
+    <InterpreterReference Include="Global|PythonCore|3.6" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="requirements.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

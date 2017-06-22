@@ -15,7 +15,7 @@ import os
 
 RemotePath = "https://www.ncdc.noaa.gov/orders/qclcd/"
 curDate = datetime.datetime(2007, 5, 1)
-stopDate = datetime.datetime(2017, 4, 1)
+stopDate = datetime.datetime(2017, 5, 1)
 
 weatherDir = "weatherData"
 if not os.path.exists(weatherDir):
